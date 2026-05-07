@@ -22,11 +22,24 @@ pub async fn get_accounts(user_token: &str) -> Result<Value, String> {
     ])
     .send()
     .await
-    .map_err(|e| e.to_string())?;
-  res.json::<Value>().await.map_err(|e| e.to_string())
+    .map_err(|e| format!("เชื่อมต่อ Facebook ไม่ได้: {}", e))?;
+
+  if !res.status().is_success() {
+    let status = res.status();
+    let body = res.text().await.unwrap_or_default();
+    return Err(format!("Facebook API ตอบ {}: {}", status, body));
+  }
+
+  res.json::<Value>().await.map_err(|e| format!("อ่านข้อมูลเพจไม่สำเร็จ: {}", e))
 }
 
-pub async fn post_feed(page_id: &str, token: &str, message: &str, published: bool, scheduled_publish_time: Option<i64>) -> Result<Value, String> {
+pub async fn post_feed(
+  page_id: &str,
+  token: &str,
+  message: &str,
+  published: bool,
+  scheduled_publish_time: Option<i64>,
+) -> Result<Value, String> {
   let client = Client::new();
   let mut form = vec![
     ("message", message.to_string()),
@@ -41,11 +54,23 @@ pub async fn post_feed(page_id: &str, token: &str, message: &str, published: boo
     .form(&form)
     .send()
     .await
-    .map_err(|e| e.to_string())?;
-  res.json::<Value>().await.map_err(|e| e.to_string())
+    .map_err(|e| format!("ส่งโพสต์ไม่สำเร็จ: {}", e))?;
+
+  if !res.status().is_success() {
+    let status = res.status();
+    let body = res.text().await.unwrap_or_default();
+    return Err(format!("Facebook API ตอบ {}: {}", status, body));
+  }
+
+  res.json::<Value>().await.map_err(|e| format!("อ่านผลลัพธ์ไม่สำเร็จ: {}", e))
 }
 
-pub async fn post_photo(page_id: &str, token: &str, public_image_url: &str, caption: &str) -> Result<Value, String> {
+pub async fn post_photo(
+  page_id: &str,
+  token: &str,
+  public_image_url: &str,
+  caption: &str,
+) -> Result<Value, String> {
   let res = Client::new()
     .post(format!("https://graph.facebook.com/v25.0/{page_id}/photos"))
     .form(&[
@@ -56,7 +81,13 @@ pub async fn post_photo(page_id: &str, token: &str, public_image_url: &str, capt
     ])
     .send()
     .await
-    .map_err(|e| e.to_string())?;
-  res.json::<Value>().await.map_err(|e| e.to_string())
-}
+    .map_err(|e| format!("ส่งรูปไม่สำเร็จ: {}", e))?;
 
+  if !res.status().is_success() {
+    let status = res.status();
+    let body = res.text().await.unwrap_or_default();
+    return Err(format!("Facebook API ตอบ {}: {}", status, body));
+  }
+
+  res.json::<Value>().await.map_err(|e| format!("อ่านผลลัพธ์ไม่สำเร็จ: {}", e))
+}

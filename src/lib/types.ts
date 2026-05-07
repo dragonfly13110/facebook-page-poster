@@ -24,3 +24,20 @@ export type PostRow = {
   created_at: string;
   updated_at: string;
 };
+
+export type AiResult = {
+  raw_text: string;
+  captions_json: string;
+  caption: string;
+  hashtags: string;
+  analysis_json: string;
+};
+
+export type EnvSettings = {
+  fb_page_id: string;
+  fb_page_name: string;
+  fb_page_access_token: string;
+  fb_user_access_token: string;
+  ai_api_key: string;
+  ai_model: string;
+};

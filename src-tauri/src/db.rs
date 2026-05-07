@@ -29,6 +29,15 @@ pub struct PostRow {
   pub updated_at: String,
 }
 
+#[derive(Debug, Serialize)]
+pub struct LogRow {
+  pub id: i64,
+  pub level: String,
+  pub message: String,
+  pub metadata_json: Option<String>,
+  pub created_at: String,
+}
+
 pub fn init() -> Result<String, rusqlite::Error> {
   let path = std::env::var("APP_DB_PATH").unwrap_or_else(|_| "facebook_poster.db".to_string());
   let conn = Connection::open(&path)?;
@@ -69,6 +78,16 @@ pub fn init() -> Result<String, rusqlite::Error> {
   Ok(path)
 }
 
+pub fn insert_log(db_path: &str, level: &str, message: &str, metadata_json: Option<&str>) -> Result<(), rusqlite::Error> {
+  let conn = Connection::open(db_path)?;
+  let now = Utc::now().to_rfc3339();
+  conn.execute(
+    "INSERT INTO app_logs (level, message, metadata_json, created_at) VALUES (?1, ?2, ?3, ?4)",
+    params![level, message, metadata_json, now],
+  )?;
+  Ok(())
+}
+
 pub fn save_page(db_path: &str, page_id: &str, page_name: &str, access_token: &str) -> Result<(), rusqlite::Error> {
   let conn = Connection::open(db_path)?;
   let now = Utc::now().to_rfc3339();
@@ -102,7 +121,13 @@ pub fn insert_post(
   Ok(conn.last_insert_rowid())
 }
 
-pub fn update_post_status(db_path: &str, post_id: i64, status: &str, facebook_post_id: Option<&str>, error_message: Option<&str>) -> Result<(), rusqlite::Error> {
+pub fn update_post_status(
+  db_path: &str,
+  post_id: i64,
+  status: &str,
+  facebook_post_id: Option<&str>,
+  error_message: Option<&str>,
+) -> Result<(), rusqlite::Error> {
   let conn = Connection::open(db_path)?;
   let now = Utc::now().to_rfc3339();
   conn.execute(
@@ -110,6 +135,54 @@ pub fn update_post_status(db_path: &str, post_id: i64, status: &str, facebook_po
     params![status, facebook_post_id, error_message, now, post_id],
   )?;
   Ok(())
+}
+
+pub fn delete_post(db_path: &str, post_id: i64) -> Result<(), rusqlite::Error> {
+  let conn = Connection::open(db_path)?;
+  conn.execute("DELETE FROM posts WHERE id=?1", params![post_id])?;
+  Ok(())
+}
+
+pub fn edit_post(
+  db_path: &str,
+  post_id: i64,
+  caption: &str,
+  hashtags: Option<&str>,
+  scheduled_time: Option<&str>,
+  public_image_url: Option<&str>,
+) -> Result<(), rusqlite::Error> {
+  let conn = Connection::open(db_path)?;
+  let now = Utc::now().to_rfc3339();
+  conn.execute(
+    "UPDATE posts SET caption=?1, hashtags=?2, scheduled_time=?3, public_image_url=?4, updated_at=?5 WHERE id=?6",
+    params![caption, hashtags, scheduled_time, public_image_url, now, post_id],
+  )?;
+  Ok(())
+}
+
+pub fn get_post(db_path: &str, post_id: i64) -> Result<PostRow, rusqlite::Error> {
+  let conn = Connection::open(db_path)?;
+  conn.query_row(
+    "SELECT id, local_image_path, public_image_url, ai_analysis, caption, hashtags, page_id, scheduled_time, facebook_post_id, status, error_message, created_at, updated_at FROM posts WHERE id=?1",
+    params![post_id],
+    |row| {
+      Ok(PostRow {
+        id: row.get(0)?,
+        local_image_path: row.get(1)?,
+        public_image_url: row.get(2)?,
+        ai_analysis: row.get(3)?,
+        caption: row.get(4)?,
+        hashtags: row.get(5)?,
+        page_id: row.get(6)?,
+        scheduled_time: row.get(7)?,
+        facebook_post_id: row.get(8)?,
+        status: row.get(9)?,
+        error_message: row.get(10)?,
+        created_at: row.get(11)?,
+        updated_at: row.get(12)?,
+      })
+    },
+  )
 }
 
 pub fn list_pages(db_path: &str) -> Result<Vec<PageRow>, rusqlite::Error> {
@@ -151,3 +224,41 @@ pub fn list_posts(db_path: &str) -> Result<Vec<PostRow>, rusqlite::Error> {
   rows.collect()
 }
 
+pub fn list_posts_by_status(db_path: &str, status: &str) -> Result<Vec<PostRow>, rusqlite::Error> {
+  let conn = Connection::open(db_path)?;
+  let mut stmt = conn.prepare("SELECT id, local_image_path, public_image_url, ai_analysis, caption, hashtags, page_id, scheduled_time, facebook_post_id, status, error_message, created_at, updated_at FROM posts WHERE status=?1 ORDER BY scheduled_time ASC")?;
+  let rows = stmt.query_map(params![status], |row| {
+    Ok(PostRow {
+      id: row.get(0)?,
+      local_image_path: row.get(1)?,
+      public_image_url: row.get(2)?,
+      ai_analysis: row.get(3)?,
+      caption: row.get(4)?,
+      hashtags: row.get(5)?,
+      page_id: row.get(6)?,
+      scheduled_time: row.get(7)?,
+      facebook_post_id: row.get(8)?,
+      status: row.get(9)?,
+      error_message: row.get(10)?,
+      created_at: row.get(11)?,
+      updated_at: row.get(12)?,
+    })
+  })?;
+  rows.collect()
+}
+
+pub fn get_page_by_id(db_path: &str, page_id: &str) -> Result<Option<PageRow>, rusqlite::Error> {
+  let conn = Connection::open(db_path)?;
+  let mut stmt = conn.prepare("SELECT id, page_id, page_name, access_token, created_at, updated_at FROM pages WHERE page_id=?1")?;
+  let mut rows = stmt.query_map(params![page_id], |row| {
+    Ok(PageRow {
+      id: row.get(0)?,
+      page_id: row.get(1)?,
+      page_name: row.get(2)?,
+      access_token: row.get(3)?,
+      created_at: row.get(4)?,
+      updated_at: row.get(5)?,
+    })
+  })?;
+  Ok(rows.next().transpose()?)
+}

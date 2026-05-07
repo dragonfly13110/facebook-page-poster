@@ -5,48 +5,112 @@ use serde_json::json;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AiResult {
   pub raw_text: String,
+  pub captions_json: String,
   pub caption: String,
   pub hashtags: String,
   pub analysis_json: String,
 }
 
 pub fn vision_prompt() -> &'static str {
-  "วิเคราะห์ภาพนี้อย่างละเอียด แล้วสร้างข้อความโพสต์ Facebook ภาษาไทยที่เหมาะกับงานส่งเสริมการเกษตร ใช้ภาษาคนทั่วไป อ่านง่าย ไม่ขายของเกินไป ไม่ใช้ประโยคเว่อร์ ไม่ใช้คำว่า ไม่ใช่แค่, ไม่เพียงแต่, ยกระดับ, ขับเคลื่อน, พัฒนาอย่างยั่งยืน, พลาดไม่ได้ และอย่าใช้เครื่องหมาย — ให้สร้าง 3 แบบ ได้แก่ แบบให้ความรู้ แบบเล่าสั้นๆ และแบบราชการอ่านง่าย พร้อม hashtag 5-8 คำ"
+  "วิเคราะห์ภาพนี้อย่างละเอียด แล้วสร้างข้อความโพสต์ Facebook ภาษาไทยที่เหมาะกับงานส่งเสริมการเกษตร \
+  ใช้ภาษาคนทั่วไป อ่านง่าย ไม่ขายของเกินไป ไม่ใช้ประโยคเว่อร์ ไม่ใช้คำว่า ไม่ใช่แค่, ไม่เพียงแต่, \
+  ยกระดับ, ขับเคลื่อน, พัฒนาอย่างยั่งยืน, พลาดไม่ได้ และอย่าใช้เครื่องหมาย — \
+  ให้ตอบกลับในรูปแบบ JSON เท่านั้น:\n\
+  {\n  \"captions\": [\n    {\"style\": \"ให้ความรู้\", \"text\": \"...\"},\n    \
+  {\"style\": \"เล่าสั้นๆ\", \"text\": \"...\"},\n    \
+  {\"style\": \"ราชการอ่านง่าย\", \"text\": \"...\"}\n  ],\n  \
+  \"hashtags\": [\"#tag1\", \"#tag2\"]\n}"
+}
+
+fn parse_data_url(data_url: &str) -> Option<(String, String)> {
+  let after_comma = data_url.split(',').nth(1)?;
+  let mime = data_url.split(':').nth(1)?.split(';').next()?;
+  Some((mime.to_string(), after_comma.to_string()))
+}
+
+fn parse_caption(text: &str) -> String {
+  if let Ok(json_val) = serde_json::from_str::<serde_json::Value>(text) {
+    if let Some(captions) = json_val["captions"].as_array() {
+      if let Some(first) = captions.first() {
+        return first["text"].as_str().unwrap_or(text).to_string();
+      }
+    }
+  }
+  text.to_string()
+}
+
+fn parse_hashtags(text: &str) -> String {
+  if let Ok(json_val) = serde_json::from_str::<serde_json::Value>(text) {
+    if let Some(tags) = json_val["hashtags"].as_array() {
+      return tags
+        .iter()
+        .filter_map(|t| t.as_str())
+        .collect::<Vec<_>>()
+        .join(" ");
+    }
+  }
+  String::new()
 }
 
 pub async fn analyze_image(api_key: &str, model: &str, image_data_url: &str) -> Result<AiResult, String> {
+  let (mime_type, base64_data) =
+    parse_data_url(image_data_url).ok_or("ไม่สามารถอ่านข้อมูลรูปได้")?;
+
   let body = json!({
-    "model": model,
-    "messages": [
-      {
-        "role": "user",
-        "content": [
-          { "type": "text", "text": vision_prompt() },
-          { "type": "image_url", "image_url": { "url": image_data_url } }
-        ]
-      }
-    ]
+    "contents": [{
+      "parts": [
+        { "text": vision_prompt() },
+        { "inline_data": { "mime_type": mime_type, "data": base64_data } }
+      ]
+    }],
+    "generationConfig": {
+      "response_mime_type": "application/json"
+    }
   });
 
+  let url = format!(
+    "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent?key={}",
+    model, api_key
+  );
+
   let res = Client::new()
-    .post("https://api.openai.com/v1/chat/completions")
-    .bearer_auth(api_key)
+    .post(&url)
     .json(&body)
     .send()
     .await
-    .map_err(|e| e.to_string())?;
+    .map_err(|e| format!("เรียก Gemini API ไม่สำเร็จ: {}", e))?;
 
-  let value: serde_json::Value = res.json().await.map_err(|e| e.to_string())?;
-  let text = value["choices"][0]["message"]["content"]
+  if !res.status().is_success() {
+    let status = res.status();
+    let err_body = res.text().await.unwrap_or_default();
+    return Err(format!("Gemini API ตอบ {}: {}", status, err_body));
+  }
+
+  let value: serde_json::Value =
+    res.json().await.map_err(|e| format!("อ่านผลลัพธ์ AI ไม่ได้: {}", e))?;
+
+  let text = value["candidates"][0]["content"]["parts"][0]["text"]
     .as_str()
     .unwrap_or("")
     .to_string();
 
+  if text.is_empty() {
+    return Err("AI ไม่ได้ส่งข้อความกลับมา".to_string());
+  }
+
+  let captions = value["candidates"][0]["content"]["parts"][0]["text"]
+    .as_str()
+    .unwrap_or("")
+    .to_string();
+
+  let caption = parse_caption(&text);
+  let hashtags = parse_hashtags(&text);
+
   Ok(AiResult {
+    caption,
+    hashtags,
     raw_text: text.clone(),
-    caption: text.clone(),
-    hashtags: "#เกษตรไทย #ภาพข่าว #ชุมชน #พัฒนา #ลงพื้นที่".to_string(),
+    captions_json: captions,
     analysis_json: json!({ "raw": text }).to_string(),
   })
 }
-
