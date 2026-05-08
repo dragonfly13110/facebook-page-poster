@@ -13,6 +13,23 @@ pub fn validate_schedule_time(scheduled: DateTime<Utc>) -> Result<(), String> {
   Ok(())
 }
 
+
+pub async fn test_token(token: &str) -> Result<Value, String> {
+  let res = Client::new()
+    .get("https://graph.facebook.com/v25.0/me")
+    .query(&[("fields", "id,name"), ("access_token", token)])
+    .send()
+    .await
+    .map_err(|e| format!("เน€เธเธทเนเธญเธกเธ•เนเธญ Facebook เนเธกเนเนเธ”เน: {}", e))?;
+
+  if !res.status().is_success() {
+    let status = res.status();
+    let body = res.text().await.unwrap_or_default();
+    return Err(format!("Facebook API เธ•เธญเธ {}: {}", status, body));
+  }
+
+  res.json::<Value>().await.map_err(|e| format!("เธญเนเธฒเธเธเนเธญเธกเธนเธฅเนเธกเนเธชเธณเน€เธฃเนเธ: {}", e))
+}
 pub async fn get_accounts(user_token: &str) -> Result<Value, String> {
   let res = Client::new()
     .get("https://graph.facebook.com/v25.0/me/accounts")
@@ -90,4 +107,54 @@ pub async fn post_photo(
   }
 
   res.json::<Value>().await.map_err(|e| format!("อ่านผลลัพธ์ไม่สำเร็จ: {}", e))
+}
+
+
+pub async fn post_photo_file(
+  page_id: &str,
+  token: &str,
+  file_path: &str,
+  caption: &str,
+) -> Result<Value, String> {
+  let file_bytes = tokio::fs::read(file_path)
+    .await
+    .map_err(|e| format!("เธญเนเธฒเธเนเธเธฅเนเธฃเธนเธเนเธกเนเธชเธณเน€เธฃเนเธ: {}", e))?;
+
+  let ext = std::path::Path::new(file_path)
+    .extension()
+    .and_then(|e| e.to_str())
+    .unwrap_or("jpg");
+  let mime = match ext {
+    "png" => "image/png",
+    "gif" => "image/gif",
+    "webp" => "image/webp",
+    "bmp" => "image/bmp",
+    _ => "image/jpeg",
+  };
+
+  let part = reqwest::multipart::Part::bytes(file_bytes)
+    .file_name(format!("photo.{}", ext))
+    .mime_str(mime)
+    .map_err(|e| format!("เธชเธฃเนเธฒเธ multipart เนเธกเนเธชเธณเน€เธฃเนเธ: {}", e))?;
+
+  let form = reqwest::multipart::Form::new()
+    .text("caption", caption.to_string())
+    .text("access_token", token.to_string())
+    .text("published", "true")
+    .part("source", part);
+
+  let res = Client::new()
+    .post(format!("https://graph.facebook.com/v25.0/{}/photos", page_id))
+    .multipart(form)
+    .send()
+    .await
+    .map_err(|e| format!("เธชเนเธเธฃเธนเธเนเธกเนเธชเธณเน€เธฃเนเธ: {}", e))?;
+
+  if !res.status().is_success() {
+    let status = res.status();
+    let body = res.text().await.unwrap_or_default();
+    return Err(format!("Facebook API เธ•เธญเธ {}: {}", status, body));
+  }
+
+  res.json::<Value>().await.map_err(|e| format!("เธญเนเธฒเธเธเธฅเธฅเธฑเธเธเนเนเธกเนเธชเธณเน€เธฃเนเธ: {}", e))
 }

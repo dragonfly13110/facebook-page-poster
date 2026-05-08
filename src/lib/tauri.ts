@@ -58,6 +58,7 @@ export const api = {
     page_access_token: string;
     caption: string;
     public_image_url?: string;
+    local_image_data_url?: string;
     scheduled_time?: string;
   }) => invoke<unknown>('publish_post', { input }),
 

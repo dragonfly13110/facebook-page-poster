@@ -56,6 +56,7 @@ struct PublishInput {
   page_access_token: String,
   caption: String,
   public_image_url: Option<String>,
+  local_image_data_url: Option<String>,
   scheduled_time: Option<String>,
 }
 
@@ -206,11 +207,11 @@ fn get_post(post_id: i64, state: State<AppState>) -> Result<db::PostRow, String>
 
 #[tauri::command]
 async fn test_facebook(token: String) -> Result<serde_json::Value, String> {
-  facebook::get_accounts(&token).await
+  facebook::test_token(&token).await
 }
 
 #[tauri::command]
-async fn publish_post(input: PublishInput, state: State<AppState>) -> Result<serde_json::Value, String> {
+async fn publish_post(input: PublishInput, state: State<'_, AppState>) -> Result<serde_json::Value, String> {
   let db_path = db_lock(&state)?;
 
   let scheduled_ts = match input.scheduled_time {
@@ -230,6 +231,27 @@ async fn publish_post(input: PublishInput, state: State<AppState>) -> Result<ser
       return Err("public_image_url ต้องเป็น URL จริงเท่านั้น (ไม่ใช่ data URL)".to_string());
     }
     facebook::post_photo(&input.page_id, &input.page_access_token, url, &input.caption).await
+  } else if let Some(data_url) = input.local_image_data_url.as_deref() {
+    let tmp = std::env::temp_dir().join(format!("fb_upload_{}.png", input.post_id));
+    let base64 = data_url
+      .split(',')
+      .nth(1)
+      .ok_or("รูปแบบ data URL ไม่ถูกต้อง".to_string())?;
+    let bytes = base64::Engine::decode(
+      &base64::engine::general_purpose::STANDARD,
+      base64,
+    ).map_err(|e| format!("ถอดรหัสรูปไม่สำเร็จ: {}", e))?;
+    tokio::fs::write(&tmp, &bytes)
+      .await
+      .map_err(|e| format!("เขียนไฟล์ชั่วคราวไม่สำเร็จ: {}", e))?;
+    let res = facebook::post_photo_file(
+      &input.page_id,
+      &input.page_access_token,
+      tmp.to_str().unwrap_or(""),
+      &input.caption,
+    ).await;
+    let _ = tokio::fs::remove_file(&tmp).await;
+    res
   } else {
     facebook::post_feed(
       &input.page_id, &input.page_access_token, &input.caption,
@@ -245,7 +267,7 @@ async fn publish_post(input: PublishInput, state: State<AppState>) -> Result<ser
       db::insert_log(&db_path, "info", &format!("โพสต์ #{} สำเร็จ", input.post_id), None).ok();
     }
     Err(e) => {
-      db::update_post_status(&db_path, input.post_id, "failed", None, Some(e)).map_err(|_| ())?;
+      db::update_post_status(&db_path, input.post_id, "failed", None, Some(e)).ok();
       db::insert_log(&db_path, "error", &format!("โพสต์ #{} ล้มเหลว: {}", input.post_id, e), None).ok();
     }
   }
@@ -254,7 +276,7 @@ async fn publish_post(input: PublishInput, state: State<AppState>) -> Result<ser
 }
 
 #[tauri::command]
-async fn retry_post(input: RetryInput, state: State<AppState>) -> Result<serde_json::Value, String> {
+async fn retry_post(input: RetryInput, state: State<'_, AppState>) -> Result<serde_json::Value, String> {
   let db_path = db_lock(&state)?;
   let post = db::get_post(&db_path, input.post_id).map_err(|e| format!("อ่านโพสต์ไม่สำเร็จ: {}", e))?;
 
@@ -276,7 +298,7 @@ async fn retry_post(input: RetryInput, state: State<AppState>) -> Result<serde_j
       db::insert_log(&db_path, "info", &format!("retry โพสต์ #{} สำเร็จ", input.post_id), None).ok();
     }
     Err(e) => {
-      db::update_post_status(&db_path, input.post_id, "failed", None, Some(e)).map_err(|_| ())?;
+      db::update_post_status(&db_path, input.post_id, "failed", None, Some(e)).ok();
       db::insert_log(&db_path, "error", &format!("retry โพสต์ #{} ล้มเหลว: {}", input.post_id, e), None).ok();
     }
   }
@@ -285,6 +307,7 @@ async fn retry_post(input: RetryInput, state: State<AppState>) -> Result<serde_j
 }
 
 fn main() {
+  dotenvy::dotenv().ok();
   tauri::Builder::default()
     .manage(AppState::default())
     .invoke_handler(tauri::generate_handler![

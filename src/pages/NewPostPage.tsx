@@ -184,7 +184,7 @@ export function NewPostPage() {
       await api.publishPost({
         post_id: savedId, page_id: pageId,
         page_access_token: page.access_token,
-        caption, public_image_url: publicImageUrl || undefined,
+        caption: caption + (hashtags ? "\n\n" + hashtags : ""), public_image_url: publicImageUrl || undefined, local_image_data_url: imageDataUrl || undefined,
       });
       setMessage(isTauri
         ? '🎉 โพสต์สำเร็จแล้ว! ตรวจสอบได้ที่ Facebook Page'
@@ -438,3 +438,4 @@ export function NewPostPage() {
     </div>
   );
 }
+
