@@ -187,6 +187,7 @@ export function BatchPage() {
     try {
       let success = 0;
       let errors = 0;
+      const errorMessages: string[] = [];
 
       const page = pages.find((p) => p.page_id === pageId);
       if (!page) { setError('ไม่พบเพจที่เลือก'); setScheduling(false); return; }
@@ -213,8 +214,9 @@ export function BatchPage() {
           });
           success++;
           await new Promise((r) => setTimeout(r, 2000));
-        } catch {
+        } catch (e) {
           errors++;
+          errorMessages.push(`รูป ${i + 1}: ${String(e)}`);
         }
       }
 
@@ -226,6 +228,9 @@ export function BatchPage() {
       setCards([]);
       setFiles([]);
       setDataUrls([]);
+      if (errorMessages.length > 0) {
+        setError(errorMessages.slice(0, 3).join('\n'));
+      }
     } catch (e) {
       setError(String(e));
     } finally {

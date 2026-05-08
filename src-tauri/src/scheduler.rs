@@ -81,7 +81,7 @@ async fn run(db_path: String, stop_flag: Arc<AtomicBool>) {
         };
 
         let result = if let Some(ref url) = post.public_image_url {
-          facebook::post_photo(&post.page_id, &page.access_token, url, &post.caption).await
+          facebook::post_photo(&post.page_id, &page.access_token, url, &post.caption, true, None).await
         } else {
           facebook::post_feed(
             &post.page_id,

@@ -154,16 +154,28 @@ export function NewPostPage() {
     if (!caption) { setError('กรุณากรอกแคปชัน'); return; }
     if (!scheduledTime) { setError('กรุณาเลือกเวลาตั้งโพสต์'); return; }
     if (!pageId) { setError('กรุณาเลือกเพจ'); return; }
+    const page = pages.find((p) => p.page_id === pageId);
+    if (!page) { setError('ไม่พบเพจที่เลือก'); return; }
     setLoading(true); setError('');
     try {
-      await api.createPost({
+      const scheduledIso = new Date(scheduledTime).toISOString();
+      const savedId = await api.createPost({
+        local_image_path: imageDataUrl || undefined,
         public_image_url: publicImageUrl || undefined,
         ai_analysis: aiResult || undefined,
         caption, hashtags: hashtags || undefined,
-        page_id: pageId, scheduled_time: scheduledTime,
+        page_id: pageId, scheduled_time: scheduledIso,
+      });
+      await api.publishPost({
+        post_id: savedId, page_id: pageId,
+        page_access_token: page.access_token,
+        caption: caption + (hashtags ? "\n\n" + hashtags : ""),
+        public_image_url: publicImageUrl || undefined,
+        local_image_data_url: imageDataUrl || undefined,
+        scheduled_time: scheduledIso,
       });
       clearDraftLocal();
-      setMessage('⏰ ตั้งเวลาโพสต์แล้ว — ระบบจะโพสต์ตามเวลาที่กำหนด');
+      setMessage('⏰ ตั้งเวลาโพสต์บน Facebook แล้ว — ตรวจสอบได้ที่ Meta scheduled posts');
     } catch (e) { setError(String(e)); }
     finally { setLoading(false); }
   };

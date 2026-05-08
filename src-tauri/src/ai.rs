@@ -74,7 +74,7 @@ pub async fn analyze_image(api_key: &str, model: &str, image_data_url: &str) -> 
       ]
     }],
     "generationConfig": {
-      "response_mime_type": "application/json "
+      "response_mime_type": "application/json"
     }
   });
 

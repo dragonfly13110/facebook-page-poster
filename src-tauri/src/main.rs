@@ -246,9 +246,28 @@ async fn publish_post(input: PublishInput, state: State<'_, AppState>) -> Result
     if !url.starts_with("https://") && !url.starts_with("http://") {
       return Err("public_image_url ต้องเป็น URL จริงเท่านั้น (ไม่ใช่ data URL)".to_string());
     }
-    facebook::post_photo(&input.page_id, &input.page_access_token, url, &input.caption).await
+    if let Some(ts) = scheduled_ts {
+      let photo = facebook::post_photo(&input.page_id, &input.page_access_token, url, "", false, None).await?;
+      let media_fbid = photo["id"].as_str().ok_or("Facebook ไม่ส่ง media id กลับมา".to_string())?;
+      facebook::post_feed_with_attached_photo(&input.page_id, &input.page_access_token, &input.caption, media_fbid, ts).await
+    } else {
+      facebook::post_photo(&input.page_id, &input.page_access_token, url, &input.caption, published, None).await
+    }
   } else if let Some(data_url) = input.local_image_data_url.as_deref() {
-    let tmp = std::env::temp_dir().join(format!("fb_upload_{}.png", input.post_id));
+    let mime = data_url
+      .split(':')
+      .nth(1)
+      .and_then(|s| s.split(';').next())
+      .unwrap_or("image/png");
+    let ext = match mime {
+      "image/jpeg" => "jpg",
+      "image/png" => "png",
+      "image/gif" => "gif",
+      "image/webp" => "webp",
+      "image/bmp" => "bmp",
+      _ => "png",
+    };
+    let tmp = std::env::temp_dir().join(format!("fb_upload_{}.{}", input.post_id, ext));
     let base64 = data_url
       .split(',')
       .nth(1)
@@ -260,14 +279,28 @@ async fn publish_post(input: PublishInput, state: State<'_, AppState>) -> Result
     tokio::fs::write(&tmp, &bytes)
       .await
       .map_err(|e| format!("เขียนไฟล์ชั่วคราวไม่สำเร็จ: {}", e))?;
-    let res = facebook::post_photo_file(
-      &input.page_id,
-      &input.page_access_token,
-      tmp.to_str().unwrap_or(""),
-      &input.caption,
-      published,
-      scheduled_ts,
-    ).await;
+    let tmp_path = tmp.to_str().unwrap_or("");
+    let res = if let Some(ts) = scheduled_ts {
+      let photo = facebook::post_photo_file(
+        &input.page_id,
+        &input.page_access_token,
+        tmp_path,
+        "",
+        false,
+        None,
+      ).await?;
+      let media_fbid = photo["id"].as_str().ok_or("Facebook ไม่ส่ง media id กลับมา".to_string())?;
+      facebook::post_feed_with_attached_photo(&input.page_id, &input.page_access_token, &input.caption, media_fbid, ts).await
+    } else {
+      facebook::post_photo_file(
+        &input.page_id,
+        &input.page_access_token,
+        tmp_path,
+        &input.caption,
+        published,
+        None,
+      ).await
+    };
     let _ = tokio::fs::remove_file(&tmp).await;
     res
   } else {
@@ -303,7 +336,7 @@ async fn retry_post(input: RetryInput, state: State<'_, AppState>) -> Result<ser
   }
 
   let result = if let Some(ref url) = post.public_image_url {
-    facebook::post_photo(&input.page_id, &input.page_access_token, url, &post.caption).await
+    facebook::post_photo(&input.page_id, &input.page_access_token, url, &post.caption, true, None).await
   } else {
     facebook::post_feed(&input.page_id, &input.page_access_token, &post.caption, true, None).await
   };
