@@ -4,12 +4,14 @@ import { api } from './lib/tauri';
 import { DashboardPage } from './pages/DashboardPage';
 import { NewPostPage } from './pages/NewPostPage';
 import { QueuePage } from './pages/QueuePage';
+import { BatchPage } from './pages/BatchPage';
 import { SettingsPage } from './pages/SettingsPage';
 
 const nav = [
   { to: '/', label: '📊 Dashboard', desc: 'ภาพรวม' },
   { to: '/new', label: '✨ เพิ่มโพสต์', desc: 'ร่าง + AI' },
   { to: '/queue', label: '📋 Queue', desc: 'จัดการคิว' },
+  { to: '/batch', label: '📦 Batch', desc: 'สร้างทีละหลายโพสต์' },
   { to: '/settings', label: '⚙️ ตั้งค่า', desc: 'เชื่อมต่อ' },
 ];
 
@@ -92,6 +94,7 @@ export default function App() {
             <Route path="/" element={<DashboardPage />} />
             <Route path="/new" element={<NewPostPage />} />
             <Route path="/queue" element={<QueuePage />} />
+            <Route path="/batch" element={<BatchPage />} />
             <Route path="/settings" element={<SettingsPage />} />
           </Routes>
         </main>

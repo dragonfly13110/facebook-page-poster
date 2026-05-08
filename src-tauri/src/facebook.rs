@@ -115,6 +115,8 @@ pub async fn post_photo_file(
   token: &str,
   file_path: &str,
   caption: &str,
+  published: bool,
+  scheduled_publish_time: Option<i64>,
 ) -> Result<Value, String> {
   let file_bytes = tokio::fs::read(file_path)
     .await
@@ -137,11 +139,14 @@ pub async fn post_photo_file(
     .mime_str(mime)
     .map_err(|e| format!("เธชเธฃเนเธฒเธ multipart เนเธกเนเธชเธณเน€เธฃเนเธ: {}", e))?;
 
-  let form = reqwest::multipart::Form::new()
+  let mut form = reqwest::multipart::Form::new()
     .text("caption", caption.to_string())
     .text("access_token", token.to_string())
-    .text("published", "true")
-    .part("source", part);
+    .text("published", published.to_string());
+  if let Some(ts) = scheduled_publish_time {
+    form = form.text("scheduled_publish_time", ts.to_string());
+  }
+  let form = form.part("source", part);
 
   let res = Client::new()
     .post(format!("https://graph.facebook.com/v25.0/{}/photos", page_id))

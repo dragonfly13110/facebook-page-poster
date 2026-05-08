@@ -5,6 +5,7 @@ mod scheduler;
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 use std::sync::Mutex;
 use tauri::State;
 
@@ -79,6 +80,21 @@ struct EditPostInput {
   hashtags: Option<String>,
   scheduled_time: Option<String>,
   public_image_url: Option<String>,
+}
+
+
+#[derive(Debug, Deserialize)]
+struct BatchAnalyzeInput {
+  image_data_urls: Vec<String>,
+  api_key: String,
+  model: String,
+}
+
+#[derive(Debug, Serialize)]
+struct BatchAnalyzeResult {
+  index: usize,
+  ai_result: Option<ai::AiResult>,
+  error: Option<String>,
 }
 
 fn db_lock(state: &State<AppState>) -> Result<String, String> {
@@ -249,6 +265,8 @@ async fn publish_post(input: PublishInput, state: State<'_, AppState>) -> Result
       &input.page_access_token,
       tmp.to_str().unwrap_or(""),
       &input.caption,
+      published,
+      scheduled_ts,
     ).await;
     let _ = tokio::fs::remove_file(&tmp).await;
     res
@@ -306,6 +324,39 @@ async fn retry_post(input: RetryInput, state: State<'_, AppState>) -> Result<ser
   result
 }
 
+
+#[tauri::command]
+async fn batch_analyze_images(input: BatchAnalyzeInput) -> Result<Vec<BatchAnalyzeResult>, String> {
+  let sem = Arc::new(tokio::sync::Semaphore::new(5));
+  let mut set = tokio::task::JoinSet::new();
+
+  for (i, data_url) in input.image_data_urls.iter().enumerate() {
+    let api_key = input.api_key.clone();
+    let model = input.model.clone();
+    let data_url = data_url.clone();
+    let sem = sem.clone();
+
+    set.spawn(async move {
+      let _permit = sem.acquire().await.unwrap();
+      let result = ai::analyze_image(&api_key, &model, &data_url).await;
+      BatchAnalyzeResult {
+        index: i,
+        ai_result: result.as_ref().ok().cloned(),
+        error: result.err(),
+      }
+    });
+  }
+
+  let mut results = Vec::new();
+  while let Some(res) = set.join_next().await {
+    if let Ok(r) = res {
+      results.push(r);
+    }
+  }
+
+  Ok(results)
+}
+
 fn main() {
   dotenvy::dotenv().ok();
   tauri::Builder::default()
@@ -324,6 +375,7 @@ fn main() {
       test_facebook,
       publish_post,
       retry_post,
+      batch_analyze_images,
     ])
     .run(tauri::generate_context!())
     .expect("error");

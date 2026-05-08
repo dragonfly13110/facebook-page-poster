@@ -1,6 +1,19 @@
 import { invoke } from './mock';
 import type { AiResult, EnvSettings } from './types';
 
+
+export type BatchAnalyzeInput = {
+  image_data_urls: string[];
+  api_key: string;
+  model: string;
+};
+
+export type BatchAnalyzeResult = {
+  index: number;
+  ai_result: AiResult | null;
+  error: string | null;
+};
+
 export const api = {
   initDb: () => invoke<void>('init_db'),
 
@@ -86,4 +99,7 @@ export const api = {
     page_id: string;
     page_access_token: string;
   }) => invoke<unknown>('retry_post', { input }),
+
+  batchAnalyzeImages: (input: BatchAnalyzeInput) =>
+    invoke<BatchAnalyzeResult[]>('batch_analyze_images', { input }),
 };
