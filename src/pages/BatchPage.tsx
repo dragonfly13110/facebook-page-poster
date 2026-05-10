@@ -55,6 +55,7 @@ function generateScheduleTimes(
 }
 
 type PostCard = {
+  id: string;
   index: number;
   dataUrl: string;
   caption: string;
@@ -73,6 +74,7 @@ export function BatchPage() {
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [dragActive, setDragActive] = useState(false);
+  const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
   const [pageId, setPageId] = useState('');
   const [pages, setPages] = useState<Array<{ id: number; page_id: string; page_name: string; access_token: string }>>([]);
   const [postsPerDay, setPostsPerDay] = useState(1);
@@ -132,6 +134,36 @@ export function BatchPage() {
     setMessage('');
   };
 
+  const onDragStart = (e: React.DragEvent, index: number, id: string) => {
+    setDraggedIndex(index);
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', id);
+    // ป้องกันการเลือกข้อความขณะลาก
+    if (window.getSelection()) {
+      window.getSelection()?.removeAllRanges();
+    }
+  };
+
+  const onDragOverCard = (e: React.DragEvent, index: number) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (draggedIndex === null || draggedIndex === index) return;
+
+    setCards((prev) => {
+      const newCards = [...prev];
+      const draggedItem = newCards[draggedIndex];
+      newCards.splice(draggedIndex, 1);
+      newCards.splice(index, 0, draggedItem);
+      return newCards;
+    });
+    
+    setDraggedIndex(index);
+  };
+
+  const onDragEnd = () => {
+    setDraggedIndex(null);
+  };
+
   const analyzeAll = async () => {
     if (!dataUrls.length) {
       setError('ยังไม่มีรูปให้วิเคราะห์');
@@ -154,6 +186,7 @@ export function BatchPage() {
       const newCards: PostCard[] = dataUrls.map((url, i) => {
         const r = map.get(i);
         return {
+          id: Math.random().toString(36).substring(2, 9),
           index: i,
           dataUrl: url,
           caption: r?.ai_result?.caption || '',
@@ -441,13 +474,31 @@ export function BatchPage() {
         <>
           <div className="flex items-center justify-between">
             <h3 className="font-semibold text-slate-700">📝 Preview โพสต์ ({cards.length})</h3>
-            <span className="text-xs text-slate-400">แก้ไขแคปชันกับ hashtags ได้ตามต้องการ</span>
+            <span className="text-xs text-slate-400">แก้ไขแคปชันกับ hashtags ได้ตามต้องการ (ลากเพื่อสลับวันได้)</span>
           </div>
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+          <div 
+            className="grid gap-4 md:grid-cols-2 lg:grid-cols-3"
+            onDragOver={(e) => e.preventDefault()}
+          >
             {cards.map((card, i) => (
-              <div key={i} className="rounded-xl bg-white p-4 shadow-sm ring-1 ring-slate-200">
+              <div 
+                key={card.id} 
+                draggable
+                onDragStart={(e) => onDragStart(e, i, card.id)}
+                onDragOver={(e) => onDragOverCard(e, i)}
+                onDragEnter={(e) => e.preventDefault()}
+                onDragEnd={onDragEnd}
+                className={`group relative rounded-xl bg-white p-4 shadow-sm ring-1 select-none cursor-grab active:cursor-grabbing ${
+                  draggedIndex === i 
+                    ? 'opacity-20 scale-95 ring-blue-400 z-50' 
+                    : 'ring-slate-200 hover:shadow-md transition-all'
+                }`}
+              >
+                <div className="absolute top-2 right-2 z-10 opacity-0 group-hover:opacity-100 transition-opacity cursor-grab active:cursor-grabbing bg-white/90 rounded-lg p-1.5 shadow-sm border border-slate-200 text-slate-400 hover:text-blue-500">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="9" cy="12" r="1"/><circle cx="9" cy="5" r="1"/><circle cx="9" cy="19" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="15" cy="5" r="1"/><circle cx="15" cy="19" r="1"/></svg>
+                </div>
                 <div className="aspect-square rounded-lg overflow-hidden border border-slate-100 bg-slate-50 mb-3">
-                  <img src={card.dataUrl} alt={`preview-${i}`} className="w-full h-full object-cover" />
+                  <img src={card.dataUrl} alt={`preview-${i}`} className="w-full h-full object-cover pointer-events-none" />
                 </div>
                 <div className="text-xs text-slate-400 mb-1">
                   โพสต์ที่ {i + 1}/{cards.length}
